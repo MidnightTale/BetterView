@@ -7,6 +7,7 @@ import dev.booky.betterview.nms.ReflectionUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
+import net.minecraft.SharedConstants;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.VarInt;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -139,10 +140,12 @@ public final class ChunkWriter {
             int serializedSize = 0;
             for (int i = 0, len = sections.length; i < len; i++) {
                 LevelChunkSection section = sections[i];
-                serializedSize += section.getSerializedSize()
-                        // fix https://bugs.mojang.com/browse/MC-296121
-                        - VarInt.getByteSize(section.states.data.storage().getRaw().length)
-                        - VarInt.getByteSize(((PalettedContainer<?>) section.getBiomes()).data.storage().getRaw().length);
+                serializedSize += section.getSerializedSize();
+                if (SharedConstants.getProtocolVersion() == 770) {
+                    // fix https://bugs.mojang.com/browse/MC-296121
+                    serializedSize -= VarInt.getByteSize(section.states.data.storage().getRaw().length)
+                            + VarInt.getByteSize(((PalettedContainer<?>) section.getBiomes()).data.storage().getRaw().length);
+                }
             }
             // directly write chunk data, don't create useless sub-buffer
             VarInt.write(buf, serializedSize);
