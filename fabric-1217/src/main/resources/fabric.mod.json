@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "betterview",
+  "id": "betterview-mc1217",
   "version": "${version}",
-  "name": "BetterView",
+  "name": "BetterView 1.21.7",
 
   "contact": {
     "sources": "https://github.com/MinceraftMC/BetterView",
@@ -11,25 +11,38 @@
   },
 
   "icon": "assets/betterview/icon.png",
-  "description": "Extends the normal server view distance without sacrificing server performance",
+  "description": "Extends the normal server view distance without sacrificing server performance for 1.21.7",
   "authors": [
     "booky10"
   ],
 
   "license": "GPL-3.0-only",
   "environment": "*",
+  "accessWidener": "betterview.accesswidener",
+
+  "entrypoints": {
+    "main": [
+      "dev.booky.betterview.fabric.v1217.BetterViewMod"
+    ]
+  },
+  "mixins": [
+    "betterview.mixins.json"
+  ],
 
   "depends": {
     "fabricloader": ">=0.16.10",
     "minecraft": [
-      "1.21.1",
-      "1.21.3",
-      "1.21.4",
-      "1.21.5",
       "1.21.6",
       "1.21.7"
     ],
     "java": ">=21",
-    "moonrise": "*"
+    "moonrise": "*",
+    "betterview-common": "*"
+  },
+
+  "custom": {
+    "modmenu": {
+      "parent": "betterview"
+    }
   }
 }

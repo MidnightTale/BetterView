@@ -38,6 +38,8 @@ The screenshot below was taken at `0 2250 0` in the end dimension with a view di
 
 | Minecraft Version | Paper | Fabric |
 |-------------------|-------|--------|
+| 1.21.7            | ✅     | ✅      |
+| 1.21.6            | ✅     | ✅      |
 | 1.21.5            | ✅     | ✅      |
 | 1.21.4            | ✅     | ✅      |
 | 1.21.3            | ✅     | ✅      |
@@ -73,9 +75,11 @@ On the first start, this plugin will automatically create a configuration file. 
         - `cache-duration`: The cache duration for how long extended chunks should be kept in memory (default: `PT5M`,
           5 minutes)
         - `anti-xray`:
-          - `enabled`: Whether anti-xray will be enabled or disabled in this world (default: `false`)
-          - `engine-mode`: Engine modes of anti-xray, either `HIDE`, `OBFUSCATE`, or `OBFUSCATE_LAYER` (default: `HIDE`)
-          - `hidden-blocks`: The list of blocks to hide/obfuscate (default: all ores and all base blocks of dimensions)
+            - `enabled`: Whether anti-xray will be enabled or disabled in this world (default: `false`)
+            - `engine-mode`: Engine modes of anti-xray, either `HIDE`, `OBFUSCATE`, or `OBFUSCATE_LAYER`
+              (default: `HIDE`)
+            - `hidden-blocks`: The list of blocks to hide/obfuscate (default: all ores and
+              all base blocks of dimensions)
 
 Feel free to play around with the chunk generations and chunk sending limits for
 an optimal experience on your server setup.
