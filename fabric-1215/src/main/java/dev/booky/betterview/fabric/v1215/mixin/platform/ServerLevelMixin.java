@@ -7,6 +7,8 @@ import ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel
 import ca.spottedleaf.moonrise.patches.chunk_system.scheduling.NewChunkHolder;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import dev.booky.betterview.common.ChunkCacheEntry;
+import dev.booky.betterview.common.antixray.AntiXrayProcessor;
+import dev.booky.betterview.common.antixray.ReplacementPresets;
 import dev.booky.betterview.common.config.BvLevelConfig;
 import dev.booky.betterview.common.hooks.LevelHook;
 import dev.booky.betterview.common.util.BetterViewUtil;
@@ -21,12 +23,16 @@ import io.netty.buffer.PooledByteBufAllocator;
 import net.kyori.adventure.key.Key;
 import net.minecraft.core.Holder;
 import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -46,6 +52,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
 @NullMarked
 @Implements(@Interface(iface = LevelHook.class, prefix = "betterview$"))
@@ -63,6 +71,8 @@ public abstract class ServerLevelMixin extends Level implements WorldGenLevel {
     private @MonotonicNonNull ByteBuf emptyChunkData;
     @Unique
     private @MonotonicNonNull AtomicInteger generatedChunks;
+    @Unique
+    private @MonotonicNonNull AntiXrayProcessor antiXray;
 
     public ServerLevelMixin(WritableLevelData levelData, ResourceKey<Level> dimension, RegistryAccess registryAccess, Holder<DimensionType> dimensionTypeRegistration, boolean isClientSide, boolean isDebug, long biomeZoomSeed, int maxChainedNeighborUpdates) {
         super(levelData, dimension, registryAccess, dimensionTypeRegistration, isClientSide, isDebug, biomeZoomSeed, maxChainedNeighborUpdates); // dummy ctor
@@ -73,10 +83,32 @@ public abstract class ServerLevelMixin extends Level implements WorldGenLevel {
             at = @At("TAIL")
     )
     private void postInit(CallbackInfo ci) {
-        this.emptyChunkData = PacketUtil.buildEmptyChunkData((ServerLevel) (Object) this);
+        this.emptyChunkData = PacketUtil.buildEmptyChunkData((ServerLevel) (Object) this, null);
         this.cache = BetterViewUtil.buildCache((LevelHook) this);
         this.voidWorld = PacketUtil.checkVoidWorld((ServerLevel) (Object) this);
         this.generatedChunks = new AtomicInteger();
+        this.antiXray = createAntiXray((ServerLevel) (Object) this, ((LevelHook) this).getConfig().getAntiXray());
+    }
+
+    @Unique
+    private static @Nullable AntiXrayProcessor createAntiXray(ServerLevel level, BvLevelConfig.AntiXrayConfig config) {
+        // create replacement presets based on level type
+        Function<Block, Integer> stateId = block -> Block.BLOCK_STATE_REGISTRY.getId(block.defaultBlockState());
+        ReplacementPresets levelPresets = switch (level.dimension().location().toString()) {
+            case "minecraft:the_nether" -> ReplacementPresets.createStatic(stateId.apply(Blocks.NETHERRACK));
+            case "minecraft:the_end" -> ReplacementPresets.createStatic(stateId.apply(Blocks.END_STONE));
+            default -> ReplacementPresets.createStaticZeroSplit(
+                    new int[]{stateId.apply(Blocks.STONE)},
+                    new int[]{stateId.apply(Blocks.DEEPSLATE)});
+        };
+        Function<Key, Stream<Integer>> stateListFn = key -> {
+            ResourceLocation blockKey = ResourceLocation.fromNamespaceAndPath(key.namespace(), key.value());
+            return BuiltInRegistries.BLOCK.get(blockKey)
+                    .orElseThrow().value().getStateDefinition().getPossibleStates()
+                    .stream().map(Block.BLOCK_STATE_REGISTRY::getIdOrThrow);
+        };
+        // create processor based on config
+        return AntiXrayProcessor.createProcessor(config, levelPresets, stateListFn, Block.BLOCK_STATE_REGISTRY.size());
     }
 
     public CompletableFuture<@Nullable ByteBuf> betterview$getCachedChunkBuf(McChunkPos chunkPos) {
@@ -88,7 +120,7 @@ public abstract class ServerLevelMixin extends Level implements WorldGenLevel {
         if (access == null) {
             return CompletableFuture.completedFuture(null);
         }
-        return CompletableFuture.supplyAsync(() -> ChunkWriter.writeFullOrEmpty(access));
+        return CompletableFuture.supplyAsync(() -> ChunkWriter.writeFullOrEmpty(access, this.antiXray));
     }
 
     public CompletableFuture<@Nullable ChunkTagResult> betterview$readChunk(McChunkPos chunkPos) {
@@ -99,7 +131,8 @@ public abstract class ServerLevelMixin extends Level implements WorldGenLevel {
             } else if (!ChunkTagTransformer.isChunkLit(tag.get())) {
                 return ChunkTagResult.EMPTY;
             }
-            ByteBuf chunkBuf = ChunkTagTransformer.transformToBytesOrEmpty((ServerLevel) (Object) this, tag.get(), vanillaPos);
+            ByteBuf chunkBuf = ChunkTagTransformer.transformToBytesOrEmpty((ServerLevel) (Object) this,
+                    tag.get(), this.antiXray, vanillaPos);
             return new ChunkTagResult(chunkBuf);
         });
     }
@@ -108,7 +141,7 @@ public abstract class ServerLevelMixin extends Level implements WorldGenLevel {
         CompletableFuture<ByteBuf> future = new CompletableFuture<>();
         PlatformHooks.get().scheduleChunkLoad((ServerLevel) (Object) this, chunkX, chunkZ, true,
                 ChunkStatus.LIGHT, true, Priority.LOW,
-                chunk -> future.completeAsync(() -> ChunkWriter.writeFullOrEmpty(chunk)));
+                chunk -> future.completeAsync(() -> ChunkWriter.writeFullOrEmpty(chunk, this.antiXray)));
         return future;
     }
 

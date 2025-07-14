@@ -6,6 +6,9 @@ import ca.spottedleaf.moonrise.common.util.ChunkSystem;
 import ca.spottedleaf.moonrise.patches.chunk_system.scheduling.NewChunkHolder;
 import dev.booky.betterview.common.BetterViewManager;
 import dev.booky.betterview.common.BetterViewPlayer;
+import dev.booky.betterview.common.antixray.AntiXrayProcessor;
+import dev.booky.betterview.common.antixray.ReplacementPresets;
+import dev.booky.betterview.common.config.BvLevelConfig;
 import dev.booky.betterview.common.util.ChunkTagResult;
 import dev.booky.betterview.common.util.McChunkPos;
 import dev.booky.betterview.nms.PaperNmsInterface;
@@ -13,18 +16,23 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.papermc.paper.network.ChannelInitializeListenerHolder;
+import net.kyori.adventure.key.Key;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.game.ClientboundSetChunkCacheRadiusPacket;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.Biomes;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.EmptyLevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
@@ -38,6 +46,8 @@ import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
 @NullMarked
 public class NmsAdapter implements PaperNmsInterface {
@@ -93,7 +103,7 @@ public class NmsAdapter implements PaperNmsInterface {
     }
 
     @Override
-    public CompletableFuture<@Nullable ByteBuf> getLoadedChunkBuf(World world, McChunkPos chunkPos) {
+    public CompletableFuture<@Nullable ByteBuf> getLoadedChunkBuf(World world, @Nullable AntiXrayProcessor antiXray, McChunkPos chunkPos) {
         ServerLevel level = ((CraftWorld) world).getHandle();
         NewChunkHolder holder = level.moonrise$getChunkTaskScheduler().chunkHolderManager.getChunkHolder(chunkPos.getKey());
         if (holder == null) {
@@ -103,11 +113,11 @@ public class NmsAdapter implements PaperNmsInterface {
         if (access == null) {
             return CompletableFuture.completedFuture(null);
         }
-        return CompletableFuture.supplyAsync(() -> ChunkWriter.writeFullOrEmpty(access));
+        return CompletableFuture.supplyAsync(() -> ChunkWriter.writeFullOrEmpty(access, antiXray));
     }
 
     @Override
-    public CompletableFuture<@Nullable ChunkTagResult> readChunkTag(World world, McChunkPos chunkPos) {
+    public CompletableFuture<@Nullable ChunkTagResult> readChunkTag(World world, @Nullable AntiXrayProcessor antiXray, McChunkPos chunkPos) {
         ServerLevel level = ((CraftWorld) world).getHandle();
         ChunkPos nmsPos = new ChunkPos(chunkPos.getX(), chunkPos.getZ());
         return level.chunkSource.chunkMap.read(nmsPos).thenApplyAsync(tag -> {
@@ -116,17 +126,17 @@ public class NmsAdapter implements PaperNmsInterface {
             } else if (!ChunkTagTransformer.isChunkLit(tag.get())) {
                 return ChunkTagResult.EMPTY;
             }
-            ByteBuf chunkBuf = ChunkTagTransformer.transformToBytesOrEmpty(level, tag.get(), nmsPos);
+            ByteBuf chunkBuf = ChunkTagTransformer.transformToBytesOrEmpty(level, tag.get(), antiXray, nmsPos);
             return new ChunkTagResult(chunkBuf);
         });
     }
 
     @Override
-    public CompletableFuture<ByteBuf> loadChunk(World world, int chunkX, int chunkZ) {
+    public CompletableFuture<ByteBuf> loadChunk(World world, @Nullable AntiXrayProcessor antiXray, int chunkX, int chunkZ) {
         CompletableFuture<ByteBuf> future = new CompletableFuture<>();
         ServerLevel level = ((CraftWorld) world).getHandle();
         ChunkSystem.scheduleChunkLoad(level, chunkX, chunkZ, true, ChunkStatus.LIGHT, true, PrioritisedExecutor.Priority.LOW,
-                chunk -> future.completeAsync(() -> ChunkWriter.writeFullOrEmpty(chunk)));
+                chunk -> future.completeAsync(() -> ChunkWriter.writeFullOrEmpty(chunk, antiXray)));
         return future;
     }
 
@@ -146,7 +156,7 @@ public class NmsAdapter implements PaperNmsInterface {
     }
 
     @Override
-    public ByteBuf buildEmptyChunkData(World world) {
+    public ByteBuf buildEmptyChunkData(World world, @Nullable AntiXrayProcessor antiXray) {
         ServerLevel level = ((CraftWorld) world).getHandle();
         Registry<Biome> biomeRegistry = level.registryAccess().registryOrThrow(Registries.BIOME);
         Holder.Reference<Biome> biome = biomeRegistry.getHolderOrThrow(Biomes.THE_VOID);
@@ -154,10 +164,11 @@ public class NmsAdapter implements PaperNmsInterface {
 
         ByteBuf buf = Unpooled.buffer();
         try {
-            CompoundTag heightmapTags = ChunkWriter.extractHeightmapTags(chunk);
+            CompoundTag heightmapsTag = ChunkWriter.extractHeightmapsTag(chunk);
             byte[][] blockLight = LightWriter.convertStarlightToBytes(chunk.starlight$getBlockNibbles(), false);
             byte[][] skyLight = LightWriter.convertStarlightToBytes(chunk.starlight$getSkyNibbles(), true);
-            ChunkWriter.writeFullBody(buf, heightmapTags, chunk.getSections(), blockLight, skyLight);
+            ChunkWriter.writeFullBody(buf, antiXray, level.getMinSection(),
+                    heightmapsTag, chunk.getSections(), blockLight, skyLight);
             return buf.retain();
         } finally {
             buf.release();
@@ -197,5 +208,26 @@ public class NmsAdapter implements PaperNmsInterface {
             throw new IllegalStateException("Can't save network player to " + channel + ", no handler found");
         }
         handler.setPlayer(bvPlayer);
+    }
+
+    @Override
+    public @Nullable AntiXrayProcessor createAntiXray(World world, BvLevelConfig.AntiXrayConfig config) {
+        // create replacement presets based on level type
+        Function<Block, Integer> stateId = block -> Block.BLOCK_STATE_REGISTRY.getId(block.defaultBlockState());
+        ReplacementPresets levelPresets = switch (world.getEnvironment()) {
+            case NETHER -> ReplacementPresets.createStatic(stateId.apply(Blocks.NETHERRACK));
+            case THE_END -> ReplacementPresets.createStatic(stateId.apply(Blocks.END_STONE));
+            default -> ReplacementPresets.createStaticZeroSplit(
+                    new int[]{stateId.apply(Blocks.STONE)},
+                    new int[]{stateId.apply(Blocks.DEEPSLATE)});
+        };
+        Function<Key, Stream<Integer>> stateListFn = key -> {
+            ResourceLocation blockKey = ResourceLocation.fromNamespaceAndPath(key.namespace(), key.value());
+            return BuiltInRegistries.BLOCK.getHolder(blockKey)
+                    .orElseThrow().value().getStateDefinition().getPossibleStates()
+                    .stream().map(Block.BLOCK_STATE_REGISTRY::getIdOrThrow);
+        };
+        // create processor based on config
+        return AntiXrayProcessor.createProcessor(config, levelPresets, stateListFn, Block.BLOCK_STATE_REGISTRY.size());
     }
 }

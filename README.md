@@ -21,6 +21,7 @@ caching of chunk data.
 - Configurable limitations for chunk sending and chunk generation
 - Per-dimension configuration options
 - Support for integrated or dedicated fabric servers
+- Lightweight anti-xray support for extended chunks
 
 <details>
 <summary><strong>Example: Loading speed for a view distance of 127 chunks</strong></summary>
@@ -71,9 +72,17 @@ On the first start, this plugin will automatically create a configuration file. 
         - `view-distance`: The maximum extended view distance for this dimension (default: `32`)
         - `cache-duration`: The cache duration for how long extended chunks should be kept in memory (default: `PT5M`,
           5 minutes)
+        - `anti-xray`:
+          - `enabled`: Whether anti-xray will be enabled or disabled in this world (default: `false`)
+          - `engine-mode`: Engine modes of anti-xray, either `HIDE`, `OBFUSCATE`, or `OBFUSCATE_LAYER` (default: `HIDE`)
+          - `hidden-blocks`: The list of blocks to hide/obfuscate (default: all ores and all base blocks of dimensions)
 
 Feel free to play around with the chunk generations and chunk sending limits for
 an optimal experience on your server setup.
+
+When using anti-xray, be aware that this plugin implements a lightweight version of anti-xray, which
+doesn't check if a block is exposed to air or not. This means that every engine-mode other than `HIDE`
+will probably not look very good.
 
 Make sure to adjust the cache duration based on what you use your server for;
 for e.g. static lobby servers, you can use a longer cache duration than for dynamic SMP servers.

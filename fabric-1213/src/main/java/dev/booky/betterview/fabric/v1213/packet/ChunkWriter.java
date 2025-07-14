@@ -2,6 +2,7 @@ package dev.booky.betterview.fabric.v1213.packet;
 // Created by booky10 in BetterView (20:38 03.06.2025)
 
 import ca.spottedleaf.moonrise.patches.starlight.chunk.StarlightChunk;
+import dev.booky.betterview.common.antixray.AntiXrayProcessor;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
@@ -42,7 +43,7 @@ public final class ChunkWriter {
         return true;
     }
 
-    public static CompoundTag extractHeightmapTags(ChunkAccess chunk) {
+    public static CompoundTag extractHeightmapsTag(ChunkAccess chunk) {
         CompoundTag heightmapsTag = new CompoundTag();
         for (int i = 0, len = SENDABLE_HEIGHTMAP_TYPES.length; i < len; i++) {
             Heightmap.Types type = SENDABLE_HEIGHTMAP_TYPES[i];
@@ -54,22 +55,22 @@ public final class ChunkWriter {
         return heightmapsTag;
     }
 
-    public static ByteBuf writeFullOrEmpty(ChunkAccess chunk) {
+    public static ByteBuf writeFullOrEmpty(ChunkAccess chunk, @Nullable AntiXrayProcessor antiXray) {
         if (isEmpty(chunk)) {
             return Unpooled.EMPTY_BUFFER;
         }
-        CompoundTag heightmapTags = extractHeightmapTags(chunk);
+        CompoundTag heightmapsTag = extractHeightmapsTag(chunk);
         // convert lighting data
         byte[][] blockLight = LightWriter.convertStarlightToBytes(((StarlightChunk) chunk).starlight$getBlockNibbles(), false);
         byte[][] skyLight = LightWriter.convertStarlightToBytes(((StarlightChunk) chunk).starlight$getSkyNibbles(), true);
         // delegate to chunk writing method
         ChunkPos chunkPos = chunk.getPos();
-        return writeFull(chunk.getPos().x, chunkPos.z,
-                heightmapTags, chunk.getSections(), blockLight, skyLight);
+        return writeFull(chunk.getPos().x, chunkPos.z, antiXray, chunk.getMinSectionY(),
+                heightmapsTag, chunk.getSections(), blockLight, skyLight);
     }
 
     public static ByteBuf writeFull(
-            int chunkX, int chunkZ, CompoundTag heightmapsTag,
+            int chunkX, int chunkZ, @Nullable AntiXrayProcessor antiXray, int minSectionY, CompoundTag heightmapsTag,
             LevelChunkSection[] sections, byte[][] blockLight, byte @Nullable [][] skyLight
     ) {
         // allocate pooled buffer
@@ -81,7 +82,7 @@ public final class ChunkWriter {
             buf.writeInt(chunkX);
             buf.writeInt(chunkZ);
             // write buffer body
-            writeFullBody(buf, heightmapsTag, sections, blockLight, skyLight);
+            writeFullBody(buf, antiXray, minSectionY, heightmapsTag, sections, blockLight, skyLight);
             return buf.retain();
         } finally {
             buf.release();
@@ -89,32 +90,66 @@ public final class ChunkWriter {
     }
 
     public static void writeFullBody(
-            ByteBuf buf,
+            ByteBuf buf, @Nullable AntiXrayProcessor antiXray, int minSectionY,
             CompoundTag heightmapsTag, LevelChunkSection[] sections,
             byte[][] blockLight, byte @Nullable [][] skyLight
     ) {
-        // calculate serialized size of chunk data
-        int serializedSize = 0;
-        for (int i = 0, len = sections.length; i < len; i++) {
-            serializedSize += sections[i].getSerializedSize();
-        }
         // write heightmaps nbt tag
         FriendlyByteBuf.writeNbt(buf, heightmapsTag);
-        // directly write chunk data, don't create useless sub-buffer
-        VarInt.write(buf, serializedSize);
-        int expectedWriterIndex = buf.writerIndex() + serializedSize;
-        FriendlyByteBuf friendlyBuf = new FriendlyByteBuf(buf);
-        for (int i = 0, len = sections.length; i < len; i++) {
-            sections[i].write(friendlyBuf);
-        }
-        // ensure the vanilla client can read this data
-        if (buf.writerIndex() != expectedWriterIndex) {
-            throw new IllegalStateException("Expected writer index to be at "
-                    + expectedWriterIndex + ", got " + buf.writerIndex());
+        // allocate sub-buffer if we're using anti-xray
+        if (antiXray != null) {
+            ByteBuf subBuf = PooledByteBufAllocator.DEFAULT.buffer();
+            try {
+                FriendlyByteBuf friendlyBuf = new FriendlyByteBuf(subBuf);
+                for (int i = 0, len = sections.length; i < len; i++) {
+                    writeSection(friendlyBuf, sections[i], antiXray, i + minSectionY);
+                }
+                VarInt.write(buf, subBuf.readableBytes());
+                buf.writeBytes(subBuf);
+            } finally {
+                subBuf.release();
+            }
+        } else {
+            // calculate serialized size of chunk data
+            int serializedSize = 0;
+            for (int i = 0, len = sections.length; i < len; i++) {
+                serializedSize += sections[i].getSerializedSize();
+            }
+            // directly write chunk data, don't create useless sub-buffer
+            VarInt.write(buf, serializedSize);
+            int expectedWriterIndex = buf.writerIndex() + serializedSize;
+            FriendlyByteBuf friendlyBuf = new FriendlyByteBuf(buf);
+            for (int i = 0, len = sections.length; i < len; i++) {
+                sections[i].write(friendlyBuf);
+            }
+            // ensure the vanilla client can read this data
+            if (buf.writerIndex() != expectedWriterIndex) {
+                throw new IllegalStateException("Expected writer index to be at "
+                        + expectedWriterIndex + ", got " + buf.writerIndex());
+            }
         }
         // skip writing block entity list
         VarInt.write(buf, 0);
         // write light data
         LightWriter.writeLightData(buf, blockLight, skyLight);
+    }
+
+    private static void writeSection(
+            FriendlyByteBuf buf, LevelChunkSection section,
+            AntiXrayProcessor antiXray, int sectionY
+    ) {
+        buf.writeShort(section.nonEmptyBlockCount);
+
+        int preReaderIndex = buf.readerIndex();
+        int preWriterIndex = buf.writerIndex();
+        section.getStates().write(buf);
+        // move to before states are written for anti-xray to be able to read the states
+        buf.readerIndex(preWriterIndex);
+        // run anti-xray processing
+        antiXray.process(buf, sectionY, true);
+        // reset reader index
+        buf.readerIndex(preReaderIndex);
+
+        section.getBiomes().write(buf);
     }
 }

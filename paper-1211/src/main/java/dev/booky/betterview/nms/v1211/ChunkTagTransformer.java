@@ -5,6 +5,7 @@ import ca.spottedleaf.moonrise.common.util.WorldUtil;
 import ca.spottedleaf.moonrise.patches.starlight.util.SaveUtil;
 import com.destroystokyo.paper.util.SneakyThrow;
 import com.mojang.serialization.Codec;
+import dev.booky.betterview.common.antixray.AntiXrayProcessor;
 import dev.booky.betterview.nms.ReflectionUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -166,7 +167,10 @@ public final class ChunkTagTransformer {
         return filteredHeightmaps;
     }
 
-    public static ByteBuf transformToBytesOrEmpty(ServerLevel level, CompoundTag chunkTag, ChunkPos pos) {
+    public static ByteBuf transformToBytesOrEmpty(
+            ServerLevel level, CompoundTag chunkTag,
+            @Nullable AntiXrayProcessor antiXray, ChunkPos pos
+    ) {
         // extract relevant chunk data
         LevelChunkSection[] sections = new LevelChunkSection[level.getSectionsCount()];
         byte[][] blockLight = new byte[WorldUtil.getTotalLightSections(level)][];
@@ -179,8 +183,8 @@ public final class ChunkTagTransformer {
         CompoundTag heightmapsTag = filterHeightmaps(chunkTag);
         // delegate to chunk writing method
         return ChunkWriter.writeFull(
-                pos.x, pos.z, heightmapsTag,
-                sections, blockLight, skyLight
+                pos.x, pos.z, antiXray, level.getMinSection(),
+                heightmapsTag, sections, blockLight, skyLight
         );
     }
 }

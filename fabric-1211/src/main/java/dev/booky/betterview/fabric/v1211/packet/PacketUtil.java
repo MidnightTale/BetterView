@@ -2,6 +2,7 @@ package dev.booky.betterview.fabric.v1211.packet;
 // Created by booky10 in BetterView (04:08 05.06.2025)
 
 import ca.spottedleaf.moonrise.patches.starlight.chunk.StarlightChunk;
+import dev.booky.betterview.common.antixray.AntiXrayProcessor;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.Holder;
@@ -15,6 +16,7 @@ import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.chunk.EmptyLevelChunk;
 import net.minecraft.world.level.levelgen.FlatLevelSource;
 import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
 @NullMarked
 public class PacketUtil {
@@ -30,17 +32,18 @@ public class PacketUtil {
     private PacketUtil() {
     }
 
-    public static ByteBuf buildEmptyChunkData(ServerLevel level) {
+    public static ByteBuf buildEmptyChunkData(ServerLevel level, @Nullable AntiXrayProcessor antiXray) {
         Registry<Biome> biomeRegistry = level.registryAccess().registryOrThrow(Registries.BIOME);
         Holder.Reference<Biome> biome = biomeRegistry.getHolderOrThrow(Biomes.THE_VOID);
         EmptyLevelChunk chunk = new EmptyLevelChunk(level, ChunkPos.ZERO, biome);
 
         ByteBuf buf = Unpooled.buffer();
         try {
-            CompoundTag heightmapTags = ChunkWriter.extractHeightmapTags(chunk);
+            CompoundTag heightmapsTag = ChunkWriter.extractHeightmapsTag(chunk);
             byte[][] blockLight = LightWriter.convertStarlightToBytes(((StarlightChunk) chunk).starlight$getBlockNibbles(), false);
             byte[][] skyLight = LightWriter.convertStarlightToBytes(((StarlightChunk) chunk).starlight$getSkyNibbles(), true);
-            ChunkWriter.writeFullBody(buf, heightmapTags, chunk.getSections(), blockLight, skyLight);
+            ChunkWriter.writeFullBody(buf, antiXray, level.getMinSection(),
+                    heightmapsTag, chunk.getSections(), blockLight, skyLight);
             return buf.retain();
         } finally {
             buf.release();

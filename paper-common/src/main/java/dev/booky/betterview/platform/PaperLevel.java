@@ -4,6 +4,7 @@ package dev.booky.betterview.platform;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import dev.booky.betterview.common.BetterViewManager;
 import dev.booky.betterview.common.ChunkCacheEntry;
+import dev.booky.betterview.common.antixray.AntiXrayProcessor;
 import dev.booky.betterview.common.config.BvLevelConfig;
 import dev.booky.betterview.common.hooks.LevelHook;
 import dev.booky.betterview.common.util.BetterViewUtil;
@@ -30,28 +31,30 @@ public class PaperLevel implements LevelHook {
     private final LoadingCache<McChunkPos, ChunkCacheEntry> cache;
     private final boolean voidWorld;
     private final AtomicInteger generatedChunks = new AtomicInteger(0);
+    private final @Nullable AntiXrayProcessor antiXray;
 
     public PaperLevel(BetterViewManager manager, World world) {
         this.manager = manager;
         this.world = world;
-        this.emptyChunkData = PaperNmsInterface.SERVICE.buildEmptyChunkData(world);
+        this.emptyChunkData = PaperNmsInterface.SERVICE.buildEmptyChunkData(world, null);
         this.cache = BetterViewUtil.buildCache(this);
         this.voidWorld = PaperNmsInterface.SERVICE.checkVoidWorld(world);
+        this.antiXray = PaperNmsInterface.SERVICE.createAntiXray(world, this.getConfig().getAntiXray());
     }
 
     @Override
     public CompletableFuture<@Nullable ByteBuf> getCachedChunkBuf(McChunkPos chunkPos) {
-        return PaperNmsInterface.SERVICE.getLoadedChunkBuf(this.world, chunkPos);
+        return PaperNmsInterface.SERVICE.getLoadedChunkBuf(this.world, this.antiXray, chunkPos);
     }
 
     @Override
     public CompletableFuture<@Nullable ChunkTagResult> readChunk(McChunkPos chunkPos) {
-        return PaperNmsInterface.SERVICE.readChunkTag(this.world, chunkPos);
+        return PaperNmsInterface.SERVICE.readChunkTag(this.world, this.antiXray, chunkPos);
     }
 
     @Override
     public CompletableFuture<ByteBuf> loadChunk(int chunkX, int chunkZ) {
-        return PaperNmsInterface.SERVICE.loadChunk(this.world, chunkX, chunkZ);
+        return PaperNmsInterface.SERVICE.loadChunk(this.world, this.antiXray, chunkX, chunkZ);
     }
 
     @Override
