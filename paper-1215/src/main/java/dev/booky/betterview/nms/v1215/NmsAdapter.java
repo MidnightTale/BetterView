@@ -61,7 +61,8 @@ public class NmsAdapter implements PaperNmsInterface {
 
     public NmsAdapter() {
         if (SharedConstants.getProtocolVersion() != 770
-                && SharedConstants.getProtocolVersion() != 771) {
+                && SharedConstants.getProtocolVersion() != 771
+                && SharedConstants.getProtocolVersion() != 772) {
             throw new UnsupportedOperationException();
         }
     }

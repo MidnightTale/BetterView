@@ -59,5 +59,5 @@ configure<BukkitPluginDescription> {
 }
 
 tasks.named<RunServer>("runServer") {
-    minecraftVersion("1.21.6")
+    minecraftVersion("1.21.7")
 }
