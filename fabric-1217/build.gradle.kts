@@ -5,6 +5,7 @@ plugins {
 }
 
 repositories {
+    // adventure-platform-mod hasn't been released yet, use snapshot version
     maven("https://s01.oss.sonatype.org/content/repositories/snapshots/") {
         mavenContent { snapshotsOnly() }
     }
