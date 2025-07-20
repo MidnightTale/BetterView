@@ -39,7 +39,8 @@ tasks.withType<ShadowJar> {
     archiveClassifier = ""
     // relocate shaded dependencies
     mapOf(
-        "org.bstats" to "bstats"
+        "org.bstats" to "bstats",
+        "com.tcoded.folialib" to "folialib"
     ).forEach { key, value ->
         relocate(key, "${project.group}.libs.$value")
     }
@@ -56,6 +57,7 @@ configure<BukkitPluginDescription> {
     authors = listOf("booky10")
     website = "https://minceraft.dev/betterview"
     apiVersion = "1.21.1"
+    foliaSupported = true
 }
 
 tasks.named<RunServer>("runServer") {

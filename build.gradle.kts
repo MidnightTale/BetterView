@@ -17,6 +17,10 @@ subprojects {
 
     repositories {
         maven("https://repo.minceraft.dev/public/")
+        maven {
+            name = "tcoded-releases"
+            url = uri("https://repo.tcoded.com/releases")
+        }
     }
 
     configure<JavaPluginExtension> {

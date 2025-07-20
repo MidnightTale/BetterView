@@ -11,6 +11,7 @@ import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.plugin.java.JavaPlugin;
+import com.tcoded.folialib.FoliaLib;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.jspecify.annotations.NullMarked;
 
@@ -21,6 +22,8 @@ public class BetterViewPlugin extends JavaPlugin {
 
     private final BetterViewManager manager;
     private @MonotonicNonNull NamespacedKey listenerKey;
+    public static BetterViewPlugin instance;
+    public FoliaLib foliaLib;
 
     public BetterViewPlugin() {
         Path configPath = this.getDataPath().resolve("config.yml");
@@ -37,6 +40,8 @@ public class BetterViewPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        instance = this;
+        foliaLib = new FoliaLib(this);
         Bukkit.getPluginManager().registerEvents(new LevelListener(this.manager), this);
         Bukkit.getPluginManager().registerEvents(new PlayerListener(this.manager), this);
         Bukkit.getPluginManager().registerEvents(new TickListener(this.manager), this);
@@ -45,7 +50,7 @@ public class BetterViewPlugin extends JavaPlugin {
         PaperNmsInterface.SERVICE.injectPacketHandler(this.manager, this.listenerKey);
 
         // run task after server has finished starting
-        Bukkit.getScheduler().runTask(this, this.manager::onPostLoad);
+        foliaLib.getScheduler().runNextTick(task -> this.manager.onPostLoad());
     }
 
     @Override
